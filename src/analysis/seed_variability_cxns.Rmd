@@ -1,0 +1,470 @@
+---
+title: "Variation in construction learning across seeds and scales"
+author: "Pam Rivière and Sean Trott"
+date: "November 3, 2025"
+output:
+  html_document:
+    keep_md: yes
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi = 300, fig.format = "pdf")
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(lme4)
+library(viridis)
+library(ggridges)
+library(lmerTest)
+library(ggrepel)
+library(ggcorrplot)
+library(reshape2)
+
+all_colors <- viridis::viridis(10, option = "mako")
+my_colors <- all_colors[c(3, 5, 7)]  # Selecting specific colors from the palette
+```
+
+
+
+
+# Load Pythia data
+
+
+Here, we analyze data looking at the average attention each head gives from each token to the previous token.
+
+```{r include=FALSE}
+# setwd("/Users/seantrott/Dropbox/UCSD/Research/NLMs/development/cxn_dev/src/analysis")
+directory_path <- "../../data/processed/dais_rs/"
+csv_files <- list.files(path = directory_path, pattern = "*.csv", full.names = TRUE)
+csv_list <- csv_files %>%
+  map(~ read_csv(.))
+df_pythia_models <- bind_rows(csv_list)
+nrow(df_pythia_models)
+
+table(df_pythia_models$seed)
+max(df_pythia_models$step)
+table(df_pythia_models$mpath)
+
+```
+
+
+# Surprisal over time by seed
+
+Here, we visualize the surprisal curves across seeds/models over time.
+
+```{r}
+### Avg. by step
+df_surprisal_by_seed = df_pythia_models %>% 
+  group_by(n_params, mpath, seed_name, revision, step, seed) %>%
+  summarise(mean_do_surprisal = mean(do_surprisal_mean),
+            mean_po_surprisal = mean(pd_surprisal_mean)) %>%
+  mutate(step_modded = step + 1)
+
+### Avg. across seeds
+df_surprisal_avg = df_surprisal_by_seed %>% 
+  group_by(n_params,mpath, revision, step) %>%
+  summarise(mean_do_surprisal_across_seeds = mean(mean_do_surprisal),
+            mean_po_surprisal_across_seeds = mean(mean_po_surprisal))  %>%
+  mutate(step_modded = step + 1)
+
+
+ggplot() +
+  geom_point(data = df_surprisal_by_seed,
+             aes(x = step_modded,
+                 y = mean_do_surprisal,
+                 color = reorder(mpath, n_params)),
+             size = 2, alpha = 0.3) +
+  geom_line(data = df_surprisal_avg,
+            aes(x = step_modded,
+                y = mean_do_surprisal_across_seeds,
+                color = reorder(mpath, n_params)),
+            size = 1.3) +
+  geom_point(data = df_surprisal_avg,
+             aes(x = step_modded,
+                 y = mean_do_surprisal_across_seeds,
+                 color = reorder(mpath, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Mean D.O. Surprisal across seeds",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
+                                                    begin = 0.8, end = 0.15))
+
+
+
+ggplot() +
+  geom_point(data = df_surprisal_by_seed,
+             aes(x = step_modded,
+                 y = mean_po_surprisal,
+                 color = reorder(mpath, n_params)),
+             size = 2, alpha = 0.3) +
+  geom_line(data = df_surprisal_avg,
+            aes(x = step_modded,
+                y = mean_po_surprisal_across_seeds,
+                color = reorder(mpath, n_params)),
+            size = 1.3) +
+  geom_point(data = df_surprisal_avg,
+             aes(x = step_modded,
+                 y = mean_po_surprisal_across_seeds,
+                 color = reorder(mpath, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Mean P.D. Surprisal across seeds",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
+                                                    begin = 0.8, end = 0.15))
+
+
+
+
+df_pythia_models %>%
+  ggplot(aes(x = log_odds_total,
+             y = log_odds_mean)) +
+  geom_point(alpha = .5) +
+  theme_minimal() +
+  facet_wrap(~seed_name)
+
+```
+
+
+# Predicting human preferences by num. parameters
+
+
+```{r}
+df_cor_by_seed = df_pythia_models %>% 
+  filter(step == 143000) %>%
+  group_by(n_params, mpath, seed_name, seed) %>%
+  summarise(cor_lr_total = cor(BehavDOpreference, log_odds_total))
+
+
+
+### Avg. across seeds
+df_cor_avg = df_cor_by_seed %>% 
+  group_by(n_params,mpath) %>%
+  summarise(mean_cor_total = mean(cor_lr_total)) 
+
+ggplot(df_cor_by_seed, aes(x = n_params, y = cor_lr_total)) +
+  geom_point(alpha = 0.7) +
+  scale_x_log10(labels = scales::comma_format()) +  # Log scale for params
+  geom_line(data = df_cor_avg, aes(x = n_params, y = mean_cor_total), 
+            color = "red", size = 1.2) +
+  geom_point(data = df_cor_avg, aes(x = n_params, y = mean_cor_total), 
+             color = "red", size = 4, shape = 17) +
+  labs(
+    y = "Correlation with human preferences",
+    x = "Number of Parameters (log scale)"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        legend.position="bottom") 
+
+
+```
+
+# Predicting Human Preferences Over Time
+
+**TODO**: Does "Total" LR difference just ubild in length effect?
+
+```{r}
+df_cor_by_seed = df_pythia_models %>% 
+  group_by(n_params, mpath, seed_name, revision, step, seed) %>%
+  summarise(cor_lr_total = cor(BehavDOpreference, log_odds_total),
+            cor_lr_mean = cor(BehavDOpreference, log_odds_mean)) %>%
+  mutate(step_modded = step + 1)
+
+### Avg. across seeds
+df_cor_avg = df_cor_by_seed %>% 
+  group_by(n_params,mpath, revision, step) %>%
+  summarise(mean_cor_total = mean(cor_lr_total),
+            mean_cor_mean = mean(cor_lr_mean))  %>%
+  mutate(step_modded = step + 1)
+
+
+ggplot() +
+  geom_point(data = df_cor_by_seed,
+             aes(x = step_modded,
+                 y = cor_lr_total,
+                 color = reorder(mpath, n_params)),
+             size = 2, alpha = 0.3) +
+  geom_line(data = df_cor_avg,
+            aes(x = step_modded,
+                y = mean_cor_total,
+                color = reorder(mpath, n_params)),
+            size = 1.3) +
+  geom_point(data = df_cor_avg,
+             aes(x = step_modded,
+                 y = mean_cor_total,
+                 color = reorder(mpath, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Correlation with human preference",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = 1))
+```
+
+
+# Final step behavhior
+
+```{r}
+df_pythia_models %>%
+  filter(step == 143000) %>%
+  # filter(mpath == "EleutherAI/pythia-70m") %>%
+  ggplot(aes(x = log_odds_total,
+             y = seed_name,
+             fill = classification)) +
+  geom_density_ridges(alpha = .6, color = NA) +
+  labs(x = "Log Ratio",
+       y = "Seed") +
+  scale_fill_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                    begin = 0.8, end = 0.15)) +
+  theme_ridges() +
+  facet_wrap(~mpath)
+
+df_pythia_models %>%
+  filter(step == 143000) %>%
+  # filter(mpath == "EleutherAI/pythia-70m") %>%
+  ggplot(aes(x = BehavDOpreference,
+             y = log_odds_total,
+             color = classification)) +
+  geom_point(alpha = .2) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~mpath + seed_name) +
+  theme_minimal() +
+  scale_color_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                    begin = 0.8, end = 0.15)) +
+  labs(y = "Surprisal Ratio (PO - DO)",
+       x = "DO Preference")
+
+
+
+
+
+mod = lmer(data = df_pythia_models %>%
+             filter(step == 143000) %>% 
+             filter(mpath == "EleutherAI/pythia-70m"),
+           log_odds_total ~ classification + (1 + classification|seed_name))
+summary(mod)
+
+
+mod = lmer(data = df_pythia_models,
+           BehavDOpreference ~ classification + log_odds_total + (1 + classification|seed_name))
+summary(mod)
+
+
+```
+
+
+# Effect of other variables
+
+
+**TODO**: Figure out how to handle pronouns in the linear model. (See: https://github.com/taka-yamakoshi/neural_constructions/blob/master/DAIS/analysis/behavioral.Rmd)
+
+```{r}
+df_judgments = read_csv("../../data/raw/DAIS/generated_pairs_with_results.csv") %>%
+  mutate(
+    # Recode pronoun as 'extrashort_definite' before separating
+    recipient_id = case_when(
+      recipient_id == 'shortDefinite' ~ 'short_definite',
+      recipient_id == 'longDefinite' ~ 'long_definite',
+      recipient_id == 'shortIndefinite' ~ 'short_indefinite',
+      recipient_id == 'longIndefinite' ~ 'long_indefinite',
+      recipient_id == 'pronoun' ~ 'extrashort_definite'
+    )
+  ) %>%
+  separate(recipient_id, 
+           into = c('recipient_length', 'recipient_definiteness'), 
+           sep = '_') %>%
+  mutate(
+    # Set reference levels (optional - R will use alphabetical by default)
+    recipient_length = factor(recipient_length, 
+                             levels = c("extrashort", "short", "long")),
+    recipient_definiteness = factor(recipient_definiteness,
+                                   levels = c("definite", "indefinite"))
+  )
+
+df_merged = df_judgments %>%
+  mutate(do_sent = DOsentence,
+         pd_sent = PDsentence) %>%
+  inner_join(df_pythia_models %>% filter(step == 143000)) 
+
+coef_results = df_merged %>%
+  group_by(mpath, n_params, seed_name) %>%
+  group_modify(~broom::tidy(lm(log_odds_total ~ classification + recipient_length +
+                                 recipient_definiteness, data = .x))) %>%
+  filter(term != "(Intercept)")
+
+
+coef_summary <- coef_results %>%
+  group_by(mpath, n_params, term) %>%
+  summarise(
+    mean_est = mean(estimate),
+    sd_est = sd(estimate),
+    se_est = sd(estimate) / sqrt(n())
+  )
+
+library(ggstance)
+
+ggplot(coef_results, aes(y = term, x = estimate)) +
+  geom_pointrange(data = coef_summary,
+                  aes(x = mean_est, 
+                      xmin = mean_est - 1.96*se_est, 
+                      xmax = mean_est + 1.96*se_est),
+                  size = 0.8, linewidth = 1.2) +
+  geom_point(aes(color = seed_name), 
+             position = position_jitter(height = 0.2),
+             size = 2, alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  labs(
+    x = "Coefficient estimate",
+    y = "Model / Term",
+    color = "Seed"
+  ) +
+  theme_minimal() +
+  facet_wrap(~mpath)
+
+
+
+ggplot(coef_results, aes(x = seed_name, y = estimate, group = term, color = term)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  facet_wrap(~mpath, scales = "free_x") +
+  labs(
+    x = "Seed",
+    y = "Coefficient estimate",
+    color = "Term"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+mod = lmer(data = df_merged %>%
+             filter(recipient_id %in% c("longIndefinite", "shortIndefinite")),
+           log_odds_mean ~ recipient_id + (1 + classification|seed_name))
+summary(mod)
+
+
+mod = lmer(data = df_merged %>%
+             filter(recipient_id %in% c("longDefinite", "shortDefinite")),
+           log_odds_mean ~ recipient_id + (1 + classification|seed_name))
+summary(mod)
+
+
+df_merged %>%
+  group_by(mpath, seed_name, recipient_length) %>%
+  summarise(mean_lr_total = mean(log_odds_total),
+            se_lr_total = sd(log_odds_total)/sqrt(n())) %>%
+  ggplot(aes(x = reorder(recipient_length, mean_lr_total),
+             y = mean_lr_total)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(x = reorder(recipient_length, mean_lr_total),
+                    ymin = mean_lr_total - se_lr_total,
+                    ymax = mean_lr_total + se_lr_total),
+                width = .2) +
+  theme_minimal() +
+  facet_wrap(~mpath + seed_name)
+
+# Calculate mean across seeds for each model/length/definiteness combo
+df_seed_means <- df_merged %>%
+  group_by(mpath, n_params, recipient_length, recipient_definiteness) %>%
+  summarise(
+    mean_lr_total = mean(log_odds_total),
+    se_lr_total = sd(log_odds_total) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# Calculate individual seed values
+df_seed_values <- df_merged %>%
+  group_by(mpath, n_params, seed_name, recipient_length, recipient_definiteness) %>%
+  summarise(mean_lr_total = mean(log_odds_total), .groups = "drop")
+
+
+ggplot() +
+  # Individual seeds - smaller points with jitter
+  geom_point(data = df_seed_values,
+             aes(x = mean_lr_total, 
+                 y = reorder(recipient_length, mean_lr_total),
+                 color = recipient_definiteness),
+             position = position_jitter(height = 0.15, seed = 42),
+             size = 2, alpha = 0.5) +
+  # Mean across seeds - larger points with error bars
+  geom_pointrange(data = df_seed_means,
+                  aes(x = mean_lr_total,
+                      xmin = mean_lr_total - se_lr_total,
+                      xmax = mean_lr_total + se_lr_total,
+                      y = reorder(recipient_length, mean_lr_total),
+                      color = recipient_definiteness),
+                  size = 1, linewidth = 1.2,
+                  position = position_dodge(width = 0.3)) +  # Changed to width
+  labs(
+    x = "Log odds (DO preference)",
+    y = "Recipient length",
+    color = "Recipient\nDefiniteness"
+  ) +
+  facet_wrap(~mpath, scales = "free_x") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+
+
+#### Human baseline
+
+mod = lmer(data = df_judgments,
+           BehavDOpreference ~ classification + (1 + classification|verb_id))
+summary(mod)
+
+mod = lmer(data = df_judgments %>%
+             filter(recipient_id %in% c("longIndefinite", "shortIndefinite")),
+           BehavDOpreference ~ recipient_id + (1 + recipient_id|verb_id))
+summary(mod)
+
+mod = lmer(data = df_judgments %>%
+             filter(recipient_id %in% c("longDefinite", "shortDefinite")),
+           BehavDOpreference ~ recipient_id + (1 + classification|verb_id))
+summary(mod)
+
+mod = lmer(data = df_judgments %>%
+             filter(theme_type != "something"),
+           BehavDOpreference ~ theme_type + (1 + classification|verb_id))
+summary(mod)
+
+mod = lmer(data = df_judgments,
+           BehavDOpreference ~ classification + (1 + classification|verb_id))
+summary(mod)
+
+
+df_pythia_models %>%
+  mutate(lr = pd_surprisal_total - do_surprisal_total) %>%
+  ggplot(aes(x = lr,
+             log_odds_total)) +
+  geom_point()
+```
+
+

@@ -9,12 +9,11 @@ def generate_revisions():
 
 
 def generate_revisions_test():
-    revisions = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 
-                 1000, 2000, 4000, 8000, 16000, 32000, 64000, 
-                 100000, 143000]
-    revisions = [143000]
+    # Fixed initial steps
+    # revisions = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 2000, 5000, 10000, 25000, 50000, 75000, 100000, 143000]
+    revisions = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 2000, 5000, 10000, 25000, 50000, 75000, 100000, 143000]
+    # revisions = [143000]
     return [f"step{step}" for step in revisions]
-
 
 def count_parameters(model):
     """credit: https://stackoverflow.com/questions/49201236/check-the-total-number-of-parameters-in-a-pytorch-model"""

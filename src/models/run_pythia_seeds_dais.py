@@ -6,7 +6,7 @@
 import pandas as pd
 import torch
 import pandas as pd
-from transformers import AutoTokenizer, GPTNeoXForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
 import utils
 import os
@@ -90,7 +90,7 @@ def main(df, mpath, revisions):
             model_name = mpath + "-" + seed_name
             print(model_name)
 
-            model = GPTNeoXForCausalLM.from_pretrained(
+            model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 revision=checkpoint,
                 output_hidden_states = True

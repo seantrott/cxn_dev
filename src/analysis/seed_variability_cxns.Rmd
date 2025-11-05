@@ -37,7 +37,7 @@ my_colors <- all_colors[c(3, 5, 7)]  # Selecting specific colors from the palett
 Here, we analyze data looking at the average attention each head gives from each token to the previous token.
 
 ```{r include=FALSE}
-# setwd("/Users/seantrott/Dropbox/UCSD/Research/NLMs/development/cxn_dev/src/analysis")
+# setwd("/Users/seantrott/Dropbox/UCSD/Research/NLMs/epistemology/cxn_dev/src/analysis")
 directory_path <- "../../data/processed/dais_rs/"
 csv_files <- list.files(path = directory_path, pattern = "*.csv", full.names = TRUE)
 csv_list <- csv_files %>%
@@ -49,6 +49,27 @@ table(df_pythia_models$seed)
 max(df_pythia_models$step)
 table(df_pythia_models$mpath)
 
+
+df_pythia_models = df_pythia_models %>%
+  mutate(tokens_seen = step * 2100000) %>%
+  mutate(model_name = str_remove(mpath, "EleutherAI/"))
+
+
+```
+
+Merge with judgments:
+
+```{r}
+df_judgments = read_csv("../../data/raw/DAIS/generated_pairs_with_results.csv") 
+
+### Merge
+df_pythia_models = df_judgments %>%
+  mutate(do_sent = DOsentence,
+         pd_sent = PDsentence) %>%
+  select(-BehavDOpreference) %>%
+  inner_join(df_pythia_models) 
+
+nrow(df_pythia_models)
 ```
 
 
@@ -56,37 +77,39 @@ table(df_pythia_models$mpath)
 
 Here, we visualize the surprisal curves across seeds/models over time.
 
-```{r}
+```{r raw_surprisal}
 ### Avg. by step
 df_surprisal_by_seed = df_pythia_models %>% 
-  group_by(n_params, mpath, seed_name, revision, step, seed) %>%
+  group_by(n_params, model_name,tokens_seen, seed_name, revision, step, seed) %>%
   summarise(mean_do_surprisal = mean(do_surprisal_mean),
             mean_po_surprisal = mean(pd_surprisal_mean)) %>%
-  mutate(step_modded = step + 1)
+  mutate(step_modded = step + 1,
+         tokens_seen_mod = tokens_seen + 1)
 
 ### Avg. across seeds
 df_surprisal_avg = df_surprisal_by_seed %>% 
-  group_by(n_params,mpath, revision, step) %>%
+  group_by(n_params,model_name, revision, step, tokens_seen) %>%
   summarise(mean_do_surprisal_across_seeds = mean(mean_do_surprisal),
             mean_po_surprisal_across_seeds = mean(mean_po_surprisal))  %>%
-  mutate(step_modded = step + 1)
+  mutate(step_modded = step + 1,
+         tokens_seen_mod = tokens_seen + 1)
 
 
 ggplot() +
   geom_point(data = df_surprisal_by_seed,
              aes(x = step_modded,
                  y = mean_do_surprisal,
-                 color = reorder(mpath, n_params)),
+                 color = reorder(model_name, n_params)),
              size = 2, alpha = 0.3) +
   geom_line(data = df_surprisal_avg,
             aes(x = step_modded,
                 y = mean_do_surprisal_across_seeds,
-                color = reorder(mpath, n_params)),
+                color = reorder(model_name, n_params)),
             size = 1.3) +
   geom_point(data = df_surprisal_avg,
              aes(x = step_modded,
                  y = mean_do_surprisal_across_seeds,
-                 color = reorder(mpath, n_params)),
+                 color = reorder(model_name, n_params)),
              size = 4, alpha = 0.4) +
   theme_minimal() +
   labs(x = "Training Step (Log10)",
@@ -98,8 +121,8 @@ ggplot() +
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
-                                                    begin = 0.8, end = 0.15))
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = 0.15, end = .8))
 
 
 
@@ -107,17 +130,17 @@ ggplot() +
   geom_point(data = df_surprisal_by_seed,
              aes(x = step_modded,
                  y = mean_po_surprisal,
-                 color = reorder(mpath, n_params)),
+                 color = reorder(model_name, n_params)),
              size = 2, alpha = 0.3) +
   geom_line(data = df_surprisal_avg,
             aes(x = step_modded,
                 y = mean_po_surprisal_across_seeds,
-                color = reorder(mpath, n_params)),
+                color = reorder(model_name, n_params)),
             size = 1.3) +
   geom_point(data = df_surprisal_avg,
              aes(x = step_modded,
                  y = mean_po_surprisal_across_seeds,
-                 color = reorder(mpath, n_params)),
+                 color = reorder(model_name, n_params)),
              size = 4, alpha = 0.4) +
   theme_minimal() +
   labs(x = "Training Step (Log10)",
@@ -129,18 +152,41 @@ ggplot() +
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
-                                                    begin = 0.8, end = 0.15))
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = 0.15, end = .8))
 
 
 
-
-df_pythia_models %>%
-  ggplot(aes(x = log_odds_total,
-             y = log_odds_mean)) +
-  geom_point(alpha = .5) +
+ggplot() +
+  geom_point(data = df_surprisal_by_seed,
+             aes(x = tokens_seen_mod,
+                 y = mean_po_surprisal,
+                 color = reorder(model_name, n_params)),
+             size = 2, alpha = 0.3) +
+  geom_line(data = df_surprisal_avg,
+            aes(x = tokens_seen_mod,
+                y = mean_po_surprisal_across_seeds,
+                color = reorder(model_name, n_params)),
+            size = 1.3) +
+  geom_point(data = df_surprisal_avg,
+             aes(x = tokens_seen_mod,
+                 y = mean_po_surprisal_across_seeds,
+                 color = reorder(model_name, n_params)),
+             size = 4, alpha = 0.4) +
   theme_minimal() +
-  facet_wrap(~seed_name)
+  labs(x = "Tokens Seen (Log10)",
+       y = "Mean P.D. Surprisal across seeds",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 2100000000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = 0.15, end = .8))
+
+
 
 ```
 
@@ -151,48 +197,54 @@ df_pythia_models %>%
 ```{r}
 df_cor_by_seed = df_pythia_models %>% 
   filter(step == 143000) %>%
-  group_by(n_params, mpath, seed_name, seed) %>%
+  group_by(n_params, model_name, seed_name, seed) %>%
   summarise(cor_lr_total = cor(BehavDOpreference, log_odds_total))
 
 
 
 ### Avg. across seeds
 df_cor_avg = df_cor_by_seed %>% 
-  group_by(n_params,mpath) %>%
+  group_by(n_params,model_name) %>%
   summarise(mean_cor_total = mean(cor_lr_total)) 
 
-ggplot(df_cor_by_seed, aes(x = n_params, y = cor_lr_total)) +
-  geom_point(alpha = 0.7) +
+ggplot(df_cor_by_seed, aes(x = n_params, 
+                           y = cor_lr_total,
+                           color = reorder(model_name, n_params))) +
+  geom_jitter(alpha = 0.7, width = .01) +
   scale_x_log10(labels = scales::comma_format()) +  # Log scale for params
-  geom_line(data = df_cor_avg, aes(x = n_params, y = mean_cor_total), 
-            color = "red", size = 1.2) +
-  geom_point(data = df_cor_avg, aes(x = n_params, y = mean_cor_total), 
-             color = "red", size = 4, shape = 17) +
+  geom_point(data = df_cor_avg, aes(x = n_params, 
+                                    y = mean_cor_total,
+                                    color = reorder(model_name, n_params)), 
+             size = 4, shape = 17) +
   labs(
     y = "Correlation with human preferences",
-    x = "Number of Parameters (log scale)"
+    x = "Number of Parameters (log scale)",
+    color = ""
   ) +
   theme_minimal() +
   theme(text = element_text(size = 15),
-        legend.position="bottom") 
+        legend.position="bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = 0.15, end = .8))
+
 
 
 ```
 
 # Predicting Human Preferences Over Time
 
-**TODO**: Does "Total" LR difference just ubild in length effect?
 
 ```{r}
 df_cor_by_seed = df_pythia_models %>% 
-  group_by(n_params, mpath, seed_name, revision, step, seed) %>%
+  group_by(n_params, model_name, seed_name, revision, step, seed, tokens_seen) %>%
   summarise(cor_lr_total = cor(BehavDOpreference, log_odds_total),
             cor_lr_mean = cor(BehavDOpreference, log_odds_mean)) %>%
-  mutate(step_modded = step + 1)
+  mutate(step_modded = step + 1,
+         tokens_seen_mod = tokens_seen + 1)
 
 ### Avg. across seeds
 df_cor_avg = df_cor_by_seed %>% 
-  group_by(n_params,mpath, revision, step) %>%
+  group_by(n_params,model_name, revision, step, tokens_seen_mod) %>%
   summarise(mean_cor_total = mean(cor_lr_total),
             mean_cor_mean = mean(cor_lr_mean))  %>%
   mutate(step_modded = step + 1)
@@ -202,17 +254,17 @@ ggplot() +
   geom_point(data = df_cor_by_seed,
              aes(x = step_modded,
                  y = cor_lr_total,
-                 color = reorder(mpath, n_params)),
-             size = 2, alpha = 0.3) +
+                 color = reorder(model_name, n_params)),
+             size = 1.2, alpha = 0.3) +
   geom_line(data = df_cor_avg,
             aes(x = step_modded,
                 y = mean_cor_total,
-                color = reorder(mpath, n_params)),
+                color = reorder(model_name, n_params)),
             size = 1.3) +
   geom_point(data = df_cor_avg,
              aes(x = step_modded,
                  y = mean_cor_total,
-                 color = reorder(mpath, n_params)),
+                 color = reorder(model_name, n_params)),
              size = 4, alpha = 0.4) +
   theme_minimal() +
   labs(x = "Training Step (Log10)",
@@ -225,65 +277,596 @@ ggplot() +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
   scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
-                                                    begin = .15, end = 1))
+                                                    begin = .15, end = .8))
+
+
+ggplot() +
+  geom_point(data = df_cor_by_seed,
+             aes(x = tokens_seen_mod,
+                 y = cor_lr_total,
+                 color = reorder(model_name, n_params)),
+             size = 1.2, alpha = 0.3) +
+  geom_line(data = df_cor_avg,
+            aes(x = tokens_seen_mod,
+                y = mean_cor_total,
+                color = reorder(model_name, n_params)),
+            size = 1.3) +
+  geom_point(data = df_cor_avg,
+             aes(x = tokens_seen_mod,
+                 y = mean_cor_total,
+                 color = reorder(model_name, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Tokens Seen (Log10)",
+       y = "Correlation with human preference",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 2100000000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8))
+
+
+```
+
+## Onset, slope, peak
+
+Do larger models show earlier onset of improved correlation with human preferences?
+
+**TODO**: Double-check onset calculation.
+
+```{r onset}
+### First, try looking at first onset of a big change, trying out different ratios
+### Calculate cross-step ratio
+df_diff <- df_cor_by_seed %>%
+  group_by(model_name, seed_name) %>%
+  arrange(step_modded) %>%
+  mutate(
+    log_step = log10(step_modded),
+    d_ratio = c(NA, diff(cor_lr_total) / diff(log_step))
+  ) %>%
+  ungroup()
+
+summary(df_diff$d_ratio)
+
+# Define a range of d_ratio thresholds to test
+d_ratio_thresholds <- seq(.05, .3, by = 0.01)
+
+# Initialize a list to store the results for each d_ratio threshold
+results <- list()
+
+# Iterate over d_ratio thresholds
+for (threshold in d_ratio_thresholds) {
+  # Filter and find the emergence onset for each threshold
+  emergence_onset <- df_diff %>%
+    filter(d_ratio > threshold) %>%
+    group_by(model_name, seed_name, n_params) %>%  # Group by model size (n_params) and seed_name
+    slice_min(step_modded, with_ties = FALSE) %>%
+    ungroup()
+
+  # Store the emergence step for each threshold, seed, and model size
+  emergence_step_data <- emergence_onset %>%
+    select(model_name, seed_name, n_params, step_modded, d_ratio) %>%
+    mutate(d_ratio_threshold = threshold)  # Add the threshold as a column
+
+  # Append the result for this threshold to the list
+  results[[as.character(threshold)]] <- emergence_step_data
+}
+
+# Combine all the results into one data frame
+results_df <- bind_rows(results)
+
+results_df %>%
+  ggplot(aes(x = d_ratio_threshold,
+             y = step_modded,
+             color = model_name)) +
+  geom_point() +
+  theme_minimal()
+
+results_summ = results_df %>%
+  group_by(model_name, n_params, seed_name) %>%
+  summarise(m_step = mean(step_modded - 1)) 
+
+### Plot average across d_ratio
+results_summ %>%
+  ggplot(aes(x = n_params,
+             y = m_step,
+             color = reorder(model_name, n_params))) +
+  geom_jitter(size = 5, alpha = .7, width = .05) +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  labs(x = "Number of Parameters (Log10)",
+       y = "Max. Deriv. Step (Log10)",
+       color = "") 
+
+
+### For each order magnitude in model size, how much sooner do we expect first onset on avearge?
+mod_ratio = lmer(data = results_summ,
+                 log10(m_step) ~ log10(n_params) + (1|seed_name))
+summary(mod_ratio)
+
+
+
+### Now fit with GAMs
+library(mgcv)
+
+# Fit GAM across all models/seeds
+df_cor_by_seed$log_step = log10(df_cor_by_seed$step_modded)
+gam_all <- gam(cor_lr_total ~ s(log_step), data = df_cor_by_seed)
+
+# Summary of the GAM
+summary(gam_all)
+
+# Plot the GAM curve
+plot(gam_all)
+
+
+### Now plot it over the original models
+newdat_all <- tibble(
+  log_step = seq(min(df_cor_by_seed$log_step),
+                 max(df_cor_by_seed$log_step),
+                 length.out = 200)
+) %>%
+  mutate(step_modded = 10^log_step,
+         gam_pred = predict(gam_all, newdata = .))
+
+
+# Plot seed-level + average + OVERALL GAM across all facets
+summary_avg = df_cor_by_seed %>%
+  group_by(model_name, n_params, step_modded) %>%
+  summarise(
+    mean_across_seeds = mean(cor_lr_total)
+  )
+
+
+df_cor_by_seed %>%
+  ggplot(aes(x = step_modded,
+             y = cor_lr_total,
+             color = factor(seed_name))) +
+  geom_line(size = .6, alpha = .4) +   # individual curves
+  geom_line(data = summary_avg, 
+            aes(x = step_modded, y = mean_across_seeds), 
+            color = "black", size = 2) +      # per-model average
+  geom_line(data = newdat_all, 
+            aes(x = step_modded, y = gam_pred), 
+            inherit.aes = FALSE, 
+            alpha = .6,
+            color = "red", size = 1.5) +        # overall GAM overlay
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Correlation with Human Preferences",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, linetype = "dotted", size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(9, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) + 
+  facet_wrap(~reorder(model_name, n_params))
+
+
+
+
+
+
 ```
 
 
-# Final step behavhior
+Do larger models show a higher peak performance?
+
+```{r peak}
+df_peak <- df_cor_by_seed %>%
+  group_by(model_name, seed_name, n_params) %>%
+  summarise(max_cor = max(cor_lr_total))
+
+df_peak %>%
+  group_by(n_params, model_name) %>%
+  summarise(mean_max_cor = mean(max_cor))
+
+summary(lmer(data = df_peak, 
+        max_cor ~ log10(n_params) + (1|seed_name)))
+
+
+df_peak %>%
+  ggplot(aes(x = n_params,
+             y = max_cor,
+             color = reorder(model_name, n_params))) +
+  geom_jitter(size = 5, alpha = .7, width = .05) +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8)) +
+  scale_x_log10() +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  labs(x = "Number of Parameters (Log10)",
+       y = "Max. Peak",
+       color = "") 
+
+```
+
+What about reduced slope?
+
+```{r slope}
+df_cor_by_seed <- df_cor_by_seed %>%
+  mutate(log_step = log10(step_modded))
+
+# Fit linear models by model + seed
+slopes_df <- df_cor_by_seed %>%
+  group_by(model_name, n_params, seed_name) %>%
+  nest() %>%
+  mutate(
+    fit = map(data, ~ lm(cor_lr_total ~ log_step, data = .x)),
+    tidied = map(fit, broom::tidy)
+  ) %>%
+  unnest(tidied) %>%
+  filter(term == "log_step") %>%
+  select(model_name, seed_name, estimate, std.error, statistic, p.value)
+
+
+slopes_df %>%
+  group_by(n_params, model_name) %>%
+  summarise(mean_slope = mean(estimate))
+
+
+summary(lmer(data = slopes_df, 
+        estimate ~ log10(n_params) + (1|seed_name)))
+
+slopes_df %>%
+  ggplot(aes(x = n_params,
+             y = estimate,
+             color = reorder(model_name, n_params))) +
+  geom_jitter(size = 5, alpha = .7, width = .05) +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8)) +
+  scale_x_log10() +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  labs(x = "Number of Parameters (Log10)",
+       y = "Slope (Correlation ~ Step)",
+       color = "") 
+
+```
+
+## Wisdom of the seeds?
+
+Here, we ask whether averaging across each seed's estimates for a given sentence pair at a certain checkpoint improves performance. We find that the "ensemble" estimate is indeed more correlated with human judgments, on average.
 
 ```{r}
+### Wisdom of the crowd
+df_wc = df_pythia_models %>%
+  group_by(model_name, step, do_sent, pd_sent, BehavDOpreference) %>%
+  summarise(mean_lr = mean(log_odds_total)) %>%
+  ungroup() %>%
+  group_by(model_name, step) %>%
+  mutate(cor_wc = cor(mean_lr, BehavDOpreference))
+
+
+### Avg. across seeds
+df_cor_avg = df_cor_by_seed %>% 
+  group_by(n_params,model_name, revision, step, tokens_seen_mod) %>%
+  summarise(mean_cor_total = mean(cor_lr_total),
+            max_cor_total = max(cor_lr_total))  %>%
+  mutate(step_modded = step + 1)
+
+
+df_joined = df_wc %>%
+  inner_join(df_cor_avg)
+
+summary(df_joined$max_cor_total)
+summary(df_joined$cor_wc)
+
+df_joined %>%
+  mutate(wisdom_benefit_to_max = cor_wc - max_cor_total,
+         wisdom_benefit_to_mean = cor_wc - mean_cor_total) %>%
+  filter(step == 143000) %>%
+  select(model_name, wisdom_benefit_to_max, wisdom_benefit_to_mean,
+         cor_wc, max_cor_total, mean_cor_total)
+
+
+df_joined %>%
+  pivot_longer(cols = c(mean_cor_total, cor_wc, max_cor_total),
+               names_to = "metric",
+               values_to = "correlation") %>%
+  ggplot(aes(x = tokens_seen_mod, y = correlation, color = metric)) +
+  geom_line(linewidth = 1) +
+  geom_point(alpha = 0.5) +
+  scale_x_log10() +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                    begin = .15, end = .8),
+                     labels = c("mean_cor_total" = "Mean Across Seeds", 
+               "cor_wc" = "Ensemble",
+               "max_cor_total" = "Max Across Seeds")) +
+  theme_minimal() +
+  labs(x = "Tokens Seen (log scale)",
+       y = "Correlation with Human Preferences",
+       color = "") +
+  facet_wrap(~reorder(model_name, n_params)) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom")
+
+
+
+####### Comparing to individual seeds
+df_summary = df_comparison %>%
+  group_by(model_name, n_params, step_modded, tokens_seen_mod) %>%
+  summarise(
+    ensemble_cor = first(cor_wc),
+    mean_individual = mean(cor_lr_total),
+    max_individual = max(cor_lr_total),
+    min_individual = min(cor_lr_total),
+    exceeds_mean = ensemble_cor > mean_individual,
+    n_seeds_beaten = sum(cor_wc > cor_lr_total),
+    total_seeds = n()
+  )
+
+# Visualization 1: Ensemble vs. Mean/Max over time
+df_summary %>%
+  ggplot(aes(x = tokens_seen_mod)) +
+  geom_ribbon(aes(ymin = min_individual, ymax = max_individual), 
+              alpha = 0.2, fill = "grey50") +
+  geom_line(aes(y = mean_individual, color = "Mean Individual"), 
+            linewidth = 1, linetype = "dashed") +
+  geom_line(aes(y = ensemble_cor, color = "Ensemble"), 
+            linewidth = 1.2) +
+  geom_point(aes(y = ensemble_cor, color = "Ensemble"), size = 2) +
+  scale_x_log10() +
+  scale_color_manual(
+    values = c("Mean Individual" = "#0072B2", "Ensemble" = "#D55E00")
+  ) +
+  facet_wrap(~reorder(model_name, n_params), scales = "free_x") +
+  theme_minimal() +
+  labs(x = "Tokens Seen (log scale)",
+       y = "Correlation with Human Preferences",
+       color = NULL,
+       subtitle = "Grey ribbon shows range of individual seeds")
+
+
+### How many seeds for ensemble beat?
+df_summary %>%
+  ggplot(aes(x = tokens_seen_mod, y = n_seeds_beaten / total_seeds)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  scale_x_log10() +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(~reorder(model_name, n_params), scales = "free_x") +
+  theme_minimal() +
+  labs(x = "Tokens Seen (log scale)",
+       y = "% Seeds Beaten by Ensemble",
+       subtitle = "Red line at 50% (better than median)")
+
+
+#### Sig. testing
+df_ttest = df_comparison %>%
+  group_by(model_name, n_params, step_modded, tokens_seen_mod) %>%
+  summarise(
+    mean_benefit = mean(wisdom_benefit_to_seed),
+    se_benefit = sd(wisdom_benefit_to_seed) / sqrt(n()),
+    ci_lower = mean_benefit - 1.96 * se_benefit,
+    ci_upper = mean_benefit + 1.96 * se_benefit,
+    p_value = t.test(wisdom_benefit_to_seed, mu = 0, alternative = "greater")$p.value,
+    is_sig = p_value < 0.05
+  )
+
+# Visualization 1: Benefit over time with confidence intervals
+df_ttest %>%
+  ggplot(aes(x = tokens_seen_mod, y = mean_benefit)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.3, fill = "#D55E00") +
+  geom_line(linewidth = 1, color = "#D55E00") +
+  geom_point(aes(shape = is_sig), size = 3, color = "#D55E00") +
+  scale_x_log10() +
+  scale_shape_manual(values = c("TRUE" = 16, "FALSE" = 1),
+                     labels = c("TRUE" = "p < .05", "FALSE" = "n.s.")) +
+  facet_wrap(~reorder(model_name, n_params), scales = "free_x") +
+  theme_minimal() +
+  labs(x = "Tokens Seen (log scale)",
+       y = "Ensemble Benefit (Δ Correlation)",
+       shape = "Significance",
+       subtitle = "Ribbon shows 95% CI")
+
+
+df_comparison = df_cor_by_seed %>%
+  ungroup() %>%
+  select(model_name, step_modded, seed_name, cor_lr_total) %>%
+  inner_join(df_joined) %>%
+  mutate(wisdom_benefit_to_seed = cor_wc - cor_lr_total)
+
+df_comparison %>%
+  group_by(model_name, step_modded) %>%
+  summarise(
+    mean_benefit = mean(wisdom_benefit_to_seed),
+    sd_benefit = sd(wisdom_benefit_to_seed),
+    t_stat = t.test(wisdom_benefit_to_seed, mu = 0, alternative = "greater")$statistic,
+    p_value = t.test(wisdom_benefit_to_seed, mu = 0, alternative = "greater")$p.value,
+    n_seeds = n()
+  )
+
+model <- lmer(wisdom_benefit_to_seed ~ log10(step_modded) + log10(n_params) + 
+              (1|seed_name), 
+              data = df_comparison)
+summary(model)
+
+  
+
+
+### Plot final-step
+df_pythia_models %>%
+  filter(step == 143000) %>%
+  group_by(model_name, n_params, do_sent, pd_sent, 
+           classification, BehavDOpreference) %>%
+  summarise(mean_lr = mean(log_odds_total)) %>%
+  ggplot(aes(x = BehavDOpreference,
+             y = mean_lr,
+             color = classification)) +
+  geom_point(alpha = .2) +
+  geom_smooth(method = "lm") +
+  labs(x = "DO Preference",
+       y = "Log Ratio (Ensemble)",
+       fill = "") +
+  scale_color_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                    begin = 0.8, end = 0.15)) +
+  theme_ridges() +
+  facet_wrap(~reorder(model_name, n_params))
+```
+
+
+
+
+
+# Effect of explanatory variables
+
+
+
+
+## Sensitivity to classification
+
+
+**TODO**: Does the "peak" at ~512 suggest that this is when models actually learn the DO construction in general (i.e., around ~256 they're starting to capture human preferences, but at ~512 they've learned DOs, and then after that they learn which verbs go with which).
+
+```{r classification}
+### final step 
 df_pythia_models %>%
   filter(step == 143000) %>%
   # filter(mpath == "EleutherAI/pythia-70m") %>%
   ggplot(aes(x = log_odds_total,
              y = seed_name,
-             fill = classification)) +
+             fill = recipient_id)) +
   geom_density_ridges(alpha = .6, color = NA) +
   labs(x = "Log Ratio",
-       y = "Seed") +
-  scale_fill_manual(values = viridisLite::viridis(2, option = "mako", 
+       y = "Seed",
+       fill = "") +
+  scale_fill_manual(values = viridisLite::viridis(5, option = "mako", 
                                                     begin = 0.8, end = 0.15)) +
   theme_ridges() +
-  facet_wrap(~mpath)
+  facet_wrap(~reorder(mpath, n_params))
 
-df_pythia_models %>%
-  filter(step == 143000) %>%
-  # filter(mpath == "EleutherAI/pythia-70m") %>%
-  ggplot(aes(x = BehavDOpreference,
-             y = log_odds_total,
-             color = classification)) +
-  geom_point(alpha = .2) +
-  geom_smooth(method = "lm") +
-  facet_wrap(~mpath + seed_name) +
+
+## Over pretraining
+coef_results = df_pythia_models %>%
+  group_by(model_name, n_params, seed_name, step) %>%
+  group_modify(~broom::tidy(lm(log_odds_total ~ classification, data = .x))) %>%
+  filter(term != "(Intercept)")
+
+### Avg. across seeds
+coef_avg = coef_results %>% 
+  group_by(n_params,model_name, step) %>%
+  summarise(mean_estimate = mean(estimate))  %>%
+  mutate(step_modded = step + 1)
+
+
+coef_results %>%
+  mutate(step_modded = step + 1) %>%
+  ggplot(aes(x = step_modded, 
+             y = estimate, color = reorder(model_name, n_params))) +
+  geom_point(alpha = .5) +
+  geom_line(data = coef_avg,
+            aes(x = step_modded,
+                y = mean_estimate,
+                color = reorder(model_name, n_params)),
+            size = 1.3) +
+  geom_point(data = coef_avg,
+             aes(x = step_modded,
+                 y = mean_estimate,
+                 color = reorder(model_name, n_params)),
+             size = 4, alpha = 0.4) +
   theme_minimal() +
-  scale_color_manual(values = viridisLite::viridis(2, option = "mako", 
-                                                    begin = 0.8, end = 0.15)) +
-  labs(y = "Surprisal Ratio (PO - DO)",
-       x = "DO Preference")
+  labs(x = "Training Step (Log10)",
+       y = "Coefficient (Classification: Non-alternating)",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8))
 
 
 
 
+coef_results = df_pythia_models %>%
+  group_by(model_name, n_params, seed_name, step) %>%
+  group_modify(~broom::tidy(lm(log_odds_total ~ recipient_id, data = .x))) %>%
+  filter(term != "(Intercept)")
 
-mod = lmer(data = df_pythia_models %>%
-             filter(step == 143000) %>% 
-             filter(mpath == "EleutherAI/pythia-70m"),
-           log_odds_total ~ classification + (1 + classification|seed_name))
-summary(mod)
+### Avg. across seeds
+coef_avg = coef_results %>% 
+  group_by(n_params,model_name, step) %>%
+  summarise(mean_estimate = mean(estimate))  %>%
+  mutate(step_modded = step + 1)
 
 
-mod = lmer(data = df_pythia_models,
-           BehavDOpreference ~ classification + log_odds_total + (1 + classification|seed_name))
-summary(mod)
-
+coef_results %>%
+  mutate(step_modded = step + 1) %>%
+  ggplot(aes(x = step_modded, 
+             y = estimate, color = reorder(model_name, n_params))) +
+  geom_point(alpha = .5) +
+  geom_line(data = coef_avg,
+            aes(x = step_modded,
+                y = mean_estimate,
+                color = reorder(model_name, n_params)),
+            size = 1.3) +
+  geom_point(data = coef_avg,
+             aes(x = step_modded,
+                 y = mean_estimate,
+                 color = reorder(model_name, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Coefficient (Classification: Non-alternating)",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = .8)) +
+  facet_wrap(~term)
 
 ```
 
 
-# Effect of other variables
+## Sensitivity to theme
+
+```{r}
+df_judgments %>%
+  group_by(theme_type) %>%
+  summarise(mean_do = mean(BehavDOpreference))
+  ungroup() %>%
+  mutate(classification = fct_relevel(classification, 'non-alternating')) %>%
+  ggplot(aes(x = recipient_id,  y = empirical_stat, fill = theme_type)) +
+    geom_bar(stat = 'identity', position=position_dodge(width = 0.9)) +
+    geom_errorbar(aes(ymin = ci_lower, ymax=ci_upper), width = 0, position=position_dodge(width = 0.9)) +
+    labs(x = 'recipient type', y = 'average DO preference') +
+    guides(x = guide_axis(angle = 90)) +
+    scale_fill_colorblind()+
+    facet_wrap(~classification) +
+    theme_few() +
+    theme(aspect.ratio = 1, legend.position = 'top')
+
+```
+
+
+## Sensitivity to recipient information
 
 
 **TODO**: Figure out how to handle pronouns in the linear model. (See: https://github.com/taka-yamakoshi/neural_constructions/blob/master/DAIS/analysis/behavioral.Rmd)
+
+**TODO**...
+
 
 ```{r}
 df_judgments = read_csv("../../data/raw/DAIS/generated_pairs_with_results.csv") %>%
@@ -311,7 +894,7 @@ df_judgments = read_csv("../../data/raw/DAIS/generated_pairs_with_results.csv") 
 df_merged = df_judgments %>%
   mutate(do_sent = DOsentence,
          pd_sent = PDsentence) %>%
-  inner_join(df_pythia_models %>% filter(step == 143000)) 
+  inner_join(df_pythia_models) 
 
 coef_results = df_merged %>%
   group_by(mpath, n_params, seed_name) %>%
@@ -389,7 +972,7 @@ df_merged %>%
                     ymax = mean_lr_total + se_lr_total),
                 width = .2) +
   theme_minimal() +
-  facet_wrap(~mpath + seed_name)
+  facet_grid(~seed_name~mpath)
 
 # Calculate mean across seeds for each model/length/definiteness combo
 df_seed_means <- df_merged %>%
@@ -467,4 +1050,351 @@ df_pythia_models %>%
   geom_point()
 ```
 
+
+
+
+```{r}
+df_cor_by_seed = df_merged %>% 
+  group_by(n_params, mpath, seed_name, revision, step, seed) %>%
+  summarise(cor_lr_total = cor(BehavDOpreference, log_odds_total),
+            cor_lr_gpt2 = cor(`gpt2-large_ratio`, log_odds_total),
+            cor_lr_ngram = cor(ngram_ratio, log_odds_total)) %>%
+  mutate(step_modded = step + 1)
+
+### Avg. across seeds
+df_cor_avg = df_cor_by_seed %>% 
+  group_by(n_params,mpath, revision, step) %>%
+  summarise(mean_cor_total = mean(cor_lr_total),
+            mean_cor_gpt2 = mean(cor_lr_gpt2),
+            mean_cor_ngram = mean(cor_lr_ngram))  %>%
+  mutate(step_modded = step + 1)
+
+
+ggplot() +
+  geom_point(data = df_cor_by_seed,
+             aes(x = step_modded,
+                 y = cor_lr_gpt2,
+                 color = reorder(mpath, n_params)),
+             size = 1.2, alpha = 0.3) +
+  geom_line(data = df_cor_avg,
+            aes(x = step_modded,
+                y = mean_cor_gpt2,
+                color = reorder(mpath, n_params)),
+            size = 1.3) +
+  geom_point(data = df_cor_avg,
+             aes(x = step_modded,
+                 y = mean_cor_gpt2,
+                 color = reorder(mpath, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Correlation with GPT-2 (large) preference",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = 1))
+
+
+ggplot() +
+  geom_point(data = df_cor_by_seed,
+             aes(x = step_modded,
+                 y = cor_lr_ngram,
+                 color = reorder(mpath, n_params)),
+             size = 1.2, alpha = 0.3) +
+  geom_line(data = df_cor_avg,
+            aes(x = step_modded,
+                y = mean_cor_ngram,
+                color = reorder(mpath, n_params)),
+            size = 1.3) +
+  geom_point(data = df_cor_avg,
+             aes(x = step_modded,
+                 y = mean_cor_ngram,
+                 color = reorder(mpath, n_params)),
+             size = 4, alpha = 0.4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Correlation with n-gram preference",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "magma", 
+                                                    begin = .15, end = 1))
+
+
+cor.test(df_judgments$`gpt2-large_ratio`,
+         df_judgments$BehavDOpreference)
+
+cor.test(df_judgments$ngram_ratio,
+         df_judgments$BehavDOpreference)
+```
+
+
+
+
+# Convergence across models
+
+**TODO**: Two questions here:
+
+- First, how does sentence-level LR correlate at each time step between model pairs, and how does that change? 
+- Second, how does the correlation with human ground truth correlate between model pairs? (Analogize to developmental trajectory of 1-back attention.)
+
+
+```{r mds}
+### Sentence-level vs. trajectory over time?
+df_wide <- df_pythia_models %>%
+  filter(mpath != "EleutherAI/pythia-160m") %>%
+  ungroup() %>%
+  mutate(model_id = paste(mpath, "-", seed_name)) %>%
+  select(step, model_id, do_sent, pd_sent, log_odds_total) %>%
+  pivot_wider(
+    names_from = model_id,
+    values_from = log_odds_total,
+    id_cols = c(step, do_sent, pd_sent)  # explicitly specify id columns
+  ) 
+
+correlations_long <- df_wide %>%
+  group_by(step) %>%
+  summarise(
+    cor_matrix = list(
+      cor(across(starts_with("EleutherAI")), use = "pairwise.complete.obs") %>%
+        as.data.frame() %>%
+        rownames_to_column("model1") %>%
+        pivot_longer(-model1, names_to = "model2", values_to = "correlation")
+    )
+  ) %>%
+  unnest(cor_matrix) %>%
+  mutate(same_model = model1 == model2) %>%
+  filter(same_model == FALSE) # %>%
+  # separate(model1, into = c("model1", "seed1"), sep = " - ") %>%
+  # separate(model2, into = c("model2", "seed2"), sep = " - ") %>%
+  # mutate(same_architecture = model1 == model2)
+
+correlations_long %>%
+  filter(step %in% c(0, 1, 4, 8, 16, 64, 256, 143000)) %>%
+  ggplot(aes(x = model1, y = model2, fill = correlation)) +
+  geom_tile() +
+  coord_fixed() +
+  theme_minimal(base_size = 10) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limit = c(-1, 1),
+    name = "Corr"
+  ) +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    strip.text = element_text(size = 10),
+    legend.position = "right"
+  ) +
+  coord_fixed() +
+  facet_wrap(~step, ncol = 4)
+
+
+
+df_params = df_pythia_models %>%
+  mutate(model = mpath, seed = seed_name) %>%
+  dplyr::select(model, seed, n_params) %>%
+  distinct() 
+
+##### Multi-dimensional scaling
+mds_by_step <- df_wide %>%
+  # drop_na() %>%
+  group_by(step) %>%
+  summarise(
+    mds_df = list({
+      cor_mat <- cor(dplyr::select(cur_data(), starts_with("EleutherAI")), use = "pairwise.complete.obs")
+      dist_mat <- as.dist(1 - cor_mat)
+      mds <- cmdscale(dist_mat, k = 2)
+      as_tibble(mds, .name_repair = "unique") %>%
+        mutate(model_id = colnames(cor_mat)) 
+    }),
+    .groups = "drop"
+  ) %>%
+  unnest(mds_df) %>%
+  separate(model_id, into = c("model", "seed"), sep = " - ") %>%
+  rename(x = `...1`, y = `...2`) %>%
+  inner_join(df_params)
+
+
+
+mds_by_step %>%
+  filter(step %in% c(0, 1, 4, 8, 16, 64, 256, 143000)) %>%
+  ggplot(aes(x, y, 
+           color = reorder(model, n_params))) +
+  geom_point() +
+  facet_wrap(~ step, ncol = 4) +
+  theme_bw() +
+  labs(x = "MDS 1",
+       y = "MDS 2",
+       color = "") +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) 
+
+
+
+df_wide <- df_pythia_models %>%
+  mutate(step_modded = step + 1) %>%
+  ungroup() %>%
+  mutate(model_id = paste(mpath, "-", seed_name)) %>%
+  dplyr::select(step_modded, model_id, seed_name, do_sent, pd_sent, log_odds_total) %>%
+  # group_by(model_id, step_modded) %>%
+  # summarise(max_attn = mean(max_attn, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(
+    names_from = model_id,
+    values_from = log_odds_total
+  )
+
+model_id_to_params <- df_pythia_models %>%
+  dplyr::select(mpath, seed_name, n_params) %>%
+  distinct() %>%
+  mutate(model_id = paste(mpath, "-", seed_name)) %>%
+  distinct(model_id, n_params) %>%
+  arrange(n_params) %>%
+  pull(model_id)
+
+
+### 
+cor_long <- df_wide %>%
+  # drop the step column; keep only model time series
+  dplyr::select(-step_modded, -do_sent, -pd_sent) %>%
+  cor(use = "pairwise.complete.obs") %>%
+  as.data.frame() %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(
+    cols = -Var1,
+    names_to = "Var2",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Var1 = factor(Var1, levels = model_id_to_params),
+    Var2 = factor(Var2, levels = model_id_to_params)
+  )
+
+
+
+### Make correlation matrix
+cor_long %>%
+  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  coord_fixed() +
+  theme_minimal(base_size = 10) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limit = c(-1, 1),
+    name = "Corr"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title = element_blank()) +
+  coord_fixed()
+
+
+### Avg. correlation within models
+# extract model name without seed
+cor_long <- cor_long %>%
+  # extract everything before the last " - " as the model
+  mutate(
+    model1 = str_replace(Var1, " - .*", ""),
+    model2 = str_replace(Var2, " - .*", ""),
+    same_model = model1 == model2
+  ) %>% 
+  mutate(same_exact = Var1 == Var2) %>%
+  filter(same_exact == FALSE)
+
+cor_long = cor_long %>%
+  left_join(df_pythia_models %>% select(model, n_params) %>% distinct(),
+            by = c("model1" = "model")) %>%
+  rename(n_params1 = n_params) %>%
+  left_join(df_pythia_models %>% select(model, n_params) %>% distinct(),
+            by = c("model2" = "model")) %>%
+  rename(n_params2 = n_params) 
+
+
+cor_long$cor = cor_long$value
+
+summary(lm(data = cor_long,
+             cor ~ same_model + log10(n_params1) + log10(n_params2)))
+
+
+summary(lm(data = cor_long %>% filter(same_model == FALSE),
+             cor ~ log10(n_params1) + log10(n_params2)))
+
+
+
+
+cor_long %>%
+  group_by(same_model) %>%
+  summarise(mean_cor = mean(cor),
+            sd_cor = sd(cor))
+
+cor_long %>%
+  group_by(same_model, n_params1) %>%
+  summarise(mean_cor = mean(cor))
+
+cor_long %>%
+  mutate(abs_diff_params = round(abs(log10(n_params2 - log10(n_params1))), 2)) %>%
+  mutate(diff_params = abs(n_params2 - n_params1)) %>%
+  filter(same_model == FALSE) %>%
+  group_by(diff_params) %>%
+  summarise(mean_cor = mean(cor))
+
+
+
+
+
+
+# Calculate centroids for each model size
+centroids <- mds_by_step %>%
+  group_by(step, n_params) %>%
+  summarise(
+    centroid_x = mean(x),
+    centroid_y = mean(y),
+    .groups = "drop"
+  )
+
+# Calculate separation ratio for each model size
+separation_stats <- centroids %>%
+  rowwise() %>%
+  mutate(
+    # Distance to other centroids
+    inter_dist = {
+      current_params <- n_params
+      other_centroids <- centroids %>% filter(n_params != current_params)
+      mean(sqrt((other_centroids$centroid_x - centroid_x)^2 + 
+                (other_centroids$centroid_y - centroid_y)^2))
+    },
+    # Within-cluster spread
+    within_dist = {
+      current_params <- n_params
+      current_x <- centroid_x
+      current_y <- centroid_y
+      mds_by_step %>% 
+        filter(n_params == current_params) %>%
+        summarise(spread = mean(sqrt((x - current_x)^2 + (y - current_y)^2))) %>%
+        pull(spread)
+    }
+  ) %>%
+  mutate(sep_ratio = inter_dist / within_dist) %>%
+  ungroup()
+
+print(separation_stats)
+```
 
